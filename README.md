@@ -15,6 +15,8 @@ CODE-time-description      BE-2h-fixed the login bug
 | `store.py` | Reads and writes `~/.worklog/entries.json` (shared, thread-safe) |
 | `outlook.py` | Reads meetings from **classic** Outlook via COM |
 | `winshell.py` | Tray icon, global hotkey, notifications, dark title bar (ctypes) |
+| `extension/` | Firefox extension that passes your Jira cookies to the helper |
+| `native/` | The helper (`cookie_host.py`) and its registration script (`install.py`) |
 | `tasks.json` | Jira URL, task codes and settings |
 | `cookie.txt` | Your Jira session cookie. **Secret, git-ignored.** See `example/cookie.txt` |
 | `~/.worklog/entries.json` | Your entries (created automatically) |
@@ -30,6 +32,18 @@ CODE-time-description      BE-2h-fixed the login bug
 
    Both are required: `MRHSession` gets you through the VW gateway, `JSESSIONID` is the Jira login. The cookie expires, roughly daily. Re-copy it when the badge in the widget turns red.
    `name=value`, `name:"value"`, a pasted `Cookie:` prefix and one pair per line are all accepted. You can also set the `JIRA_COOKIE` environment variable, or a PAT in `JIRA_TOKEN` if your Jira ever allows them.
+
+### Firefox extension (fills `cookie.txt` for you)
+
+The extension in `extension/` reads the two Jira cookies from Firefox (including the HttpOnly one, which the page console can't see) and hands them to a small local helper that writes `cookie.txt`. It runs when Firefox starts, whenever you log in again, and every 15 minutes. Nothing is sent over the network.
+
+1. **Register the helper** (once, current user, no admin): `python native/install.py`. Re-run it if you move the project or change Python. `--uninstall` removes it.
+2. **Load the extension.**
+   - *Quick test:* Firefox → `about:debugging` → This Firefox → **Load Temporary Add-on** → pick `extension/manifest.json`. It disappears when Firefox restarts.
+   - *Permanent:* Firefox release builds only keep **signed** add-ons. Zip the *contents* of `extension/` and submit it at addons.mozilla.org/developers → **On your own** (unlisted, signed automatically, usually within minutes). Open the downloaded `.xpi` in Firefox.
+3. **Check:** click the toolbar button. A green **✓** means `cookie.txt` was written. A red **!** means you aren't logged in to Jira or the helper isn't registered (hover for the reason).
+
+The Jira address is set in `extension/manifest.json` and `extension/background.js`. Change both if your Jira differs. The helper only ever writes `cookie.txt`, and only the two cookies `MRHSession` and `JSESSIONID`.
 
 ### `tasks.json`
 

@@ -11,6 +11,9 @@ Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **
 | `store.py` | `load`/`save`/`mark_synced` for `~/.worklog/entries.json`, guarded by a shared `LOCK` |
 | `outlook.py` | `read(first, last)` returns raw calendar events via a PowerShell COM script; `meetings()` and `absences()` classify them (absence = BusyStatus 3 or subject regex; split per day with the overlap in seconds) |
 | `winshell.py` | ctypes: tray icon (`Tray`), global hotkey, balloon `notify`, `style_titlebar`, `single_instance` |
+| `extension/` | Firefox MV2 extension (`background.js`): reads `MRHSession` + `JSESSIONID` via the cookies API and sends them to the native helper. Jira URL is hardcoded in `manifest.json` and `background.js` |
+| `native/cookie_host.py` | Native-messaging helper. Strictly validates the message (exactly those two names, simple values) and atomically writes `cookie.txt`. Testable without Firefox by feeding length-prefixed JSON to `read_message`/`validate`/`write_cookie` |
+| `native/install.py` | Registers the helper in `HKCU\Software\Mozilla\NativeMessagingHosts`, generating `cookie_host.bat` + `worklog_cookie.json` (git-ignored, absolute paths). Do not run it unprompted: it changes the registry |
 | `tasks.json` | Config (Jira URL, task codes, settings). Keys are listed in `README.md` |
 | `cookie.txt` | **Secret**, git-ignored. Format example in `example/cookie.txt` |
 
