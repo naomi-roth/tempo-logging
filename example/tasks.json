@@ -1,0 +1,9 @@
+{
+  "hotkey":  "ctrl+alt+j",
+  "jira_url": "https://jira.<DOMAIN>",
+  "token_env": "JIRA_TOKEN",
+  "day_start": "09:00",
+  "tasks": [
+    { "code": "BE",  "name": "Backend development", "issueKey": "<ISSUE_KEY>" }
+  ]
+}

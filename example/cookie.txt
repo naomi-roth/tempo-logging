@@ -1,0 +1,3 @@
+# these are not real values - copy from browser cookie
+MRHSession=0123456789abcdef0123456789abcdef
+JSESSIONID=0123456789ABCDEF0123456789ABCDEF
