@@ -147,7 +147,8 @@ class Widget:
         self.meeting_code = next((t["code"] for t in self.tasks
                                   if t["code"].lower() == cfg.get("meeting_code", "MTG").lower()), None)
         self.importing = False
-        self.max_s = round(float(cfg.get("max_entry_hours", 4)) * 3600)  # longest typed entry
+        hours = float(cfg.get("max_entry_hours", 4))
+        self.max_s = round(hours * 3600) if hours >= 0 else None  # longest typed entry; -1 = no limit
         self.cfg = cfg
         self.undo_stack = []  # JSON snapshots of the entries file, newest last
         self.history, self.hist_i, self.hist_draft = [], -1, ""  # Up/Down recall in the input
@@ -248,7 +249,9 @@ class Widget:
         button(bottom, "Delete", self.delete, tip="Delete the selected entries (Del). Undo brings them back").pack(side="left", padx=6)
         button(bottom, "Undo", self.undo, tip="Undo the last change (Ctrl+Z). Never un-syncs an entry").pack(side="left")
         button(bottom, "Mon–Fri", self.select_weekdays, tip="Select all weekdays, so one line is added to each").pack(side="left", padx=6)
-        button(bottom, "Meetings", self.import_meetings, tip="Import accepted meetings from Outlook for the selected days").pack(side="left")
+        if cfg.get("import_meetings_from_outlook", True):  # null or false hides the button
+            button(bottom, "Meetings", self.import_meetings,
+                   tip="Import accepted meetings from Outlook for the selected days").pack(side="left")
         button(bottom, "Sync to Jira", self.sync, tip="Upload all unsynced entries to Jira (asks to confirm first)").pack(side="right")
         self.status = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=("Segoe UI", 9))
         self.status.pack(fill="x", padx=14, pady=(0, 10))
@@ -676,7 +679,7 @@ class Widget:
         seconds = parse_duration(dur)
         if not seconds:
             return None, f"Can't read duration '{dur}'. Try 2, .5, 1h30m, 90min, 1:30"
-        if seconds > self.max_s:  # typed entries only; imported meetings don't go through check()
+        if self.max_s is not None and seconds > self.max_s:  # typed entries only; imported meetings don't go through check()
             return None, f"Max {fmt(self.max_s)} per entry (this is {fmt(seconds)}). Split it into blocks"
         if not desc:
             return None, "Add a description after the duration"

@@ -1,23 +1,19 @@
-// Copy this file to tasks.json (next to worklog.py) and edit it. tasks.json is git-ignored because it holds a token.
-// Lines starting with // are comments. Uncomment an optional line to change its default.
 {
   // --- Required ---------------------------------------------------------------------------------
 
-  // Jira where worklogs are uploaded (the one Tempo reads). Include a context path such as /jira if it has one.
-  // Uploads authenticate with the session cookie in cookie.txt, see README "Credentials".
+  // Jira where worklogs are uploaded (the one Tempo reads)
   "jira_url": "https://jira.<DOMAIN>",
 
   // The codes you type at the start of a line (BE-2h-fix bug). Case-insensitive, must NOT contain a hyphen.
   // "issueKey" is the Jira issue the time is logged against.
   "tasks": [
-    { "code": "BE",  "name": "Backend development", "issueKey": "<ISSUE_KEY>" }
-    // , { "code": "MTG", "name": "Meetings", "issueKey": "<ISSUE_KEY>" }
+    { "code": "BE",  "name": "Backend development", "issueKey": "<ISSUE_KEY>" },
+    { "code": "MTG", "name": "Meetings", "issueKey": "<ISSUE_KEY>" }
   ],
 
   // --- Optional: everything below has a default ---------------------------------------------------
-
-  // Global show/hide hotkey: modifiers (ctrl, alt, shift, win) plus a letter, digit or F1-F12. Default: win+shift+w
-  "hotkey": "ctrl+alt+j",
+  // hotkey to replace Default: win+shift+w
+  // "hotkey": "ctrl+alt+j",
 
   // When the first entry of a day starts. Later entries are stacked after it. Default: "09:00"
   // "day_start": "09:00",
@@ -25,14 +21,17 @@
   // Hours you aim to log per weekday. Default: 8
   // "target_hours": 8,
 
-  // Longest entry you can type, in hours. Imported meetings are exempt. Default: 4
+  // Longest entry you can type, in hours. -1 means no limit. Imported meetings are exempt. Default: 4
   // "max_entry_hours": 4,
-
-  // Task code used for meetings imported from classic Outlook. Must be one of the codes above. Default: "MTG"
-  // "meeting_code": "MTG",
 
   // Weekday time (HH:MM) for the tray nudge when you are under target. "" turns it off. Default: "15:00"
   // "reminder_time": "15:00",
+
+  // Whether to allow importing meetings and absences from classic Outlook. Default: true
+  // "import_meetings_from_outlook": true,
+
+  // Task code used for meetings imported from classic Outlook. Must be one of the codes above. Default: "MTG"
+  // "meeting_code": "MTG",
 
   // Regex (case-insensitive) on an Outlook event subject that marks it as an absence, not a meeting.
   // Events Outlook shows as "Out of office" always count. Default:
@@ -44,7 +43,7 @@
   // Environment variable that may hold the upload session cookie instead of cookie.txt. Default: "JIRA_COOKIE"
   // "cookie_env": "JIRA_COOKIE",
 
-  // Second, read-only Jira: lists your in-progress tickets in the widget. Click one to fill "BE -  - <title>".
+  // Read-only Jira: lists your in-progress tickets in the widget. Click one to fill "BE -  - <title>".
   // Remove this whole block to hide the ticket list.
   "tickets": {
     // Base URL of that Jira, including a context path such as /jira. Required in this block.

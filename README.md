@@ -23,10 +23,12 @@ CODE-time-description      BE-2h-fixed a bug
 
 ## Setup
 
-1. **Python 3.8+** on Windows (`tkinter` is bundled).
-2. **Copy `example/tasks.json` to `tasks.json`** and edit it (see [`tasks.json`](#tasksjson)).
+1. **Windows** with **Python 3.8+** (`tkinter` is bundled, nothing to `pip install`). Meetings import also needs **classic Outlook** (see [Meetings](#the-widget)).
+2. **Copy `example/tasks.json` to `tasks.json`** and edit it. The example explains every setting in `//` comments and has the optional ones commented out. `tasks.json` accepts `//` comments. Details: [`tasks.json`](#tasksjson).
 3. **Get your credentials** (next section). There are two, for two different Jira servers.
-4. Run `python worklog.py`.
+4. Run `python worklog.py`, then type `BE-2h-something` and press Enter. Nothing is uploaded until you click **Sync to Jira**.
+
+You only need the upload credentials to sync. Without them you can still log time locally.
 
 ## Credentials
 
@@ -88,11 +90,20 @@ The token is sent as `Authorization: Bearer ...`, which is how Jira Server/Data 
 | `day_start` | `09:00` | When the first entry of a day starts; later ones are stacked after it |
 | `hotkey` | `win+shift+w` | Global show/hide key. Modifiers (`ctrl`, `alt`, `shift`, `win`) plus a letter, digit or `F1`–`F12` |
 | `target_hours` | `8` | Daily target per weekday |
-| `max_entry_hours` | `4` | Longest entry you can type (imported meetings are exempt) |
+| `max_entry_hours` | `4` | Longest entry you can type (imported meetings are exempt). `-1` means no limit |
+| `import_meetings_from_outlook` | `true` | `null` (or `false`) hides the **Meetings** button, so Outlook is never read. Use it if you don't have classic Outlook |
 | `meeting_code` | `MTG` | Code used for imported Outlook meetings |
 | `reminder_time` | `15:00` | Weekday nudge if you're under target. `""` turns it off |
 | `absence_match` | `absence\|out of office\|\booo\b\|vacation\|holiday\|sick` | Regex (case-insensitive) on the event subject that marks an absence. Events Outlook shows as "Out of office" always count |
 | `workers` | `4` | Parallel uploads |
+
+### `cookie.txt` format
+
+```
+# one name=value per line
+MRHSession=0123456789abcdef0123456789abcdef
+JSESSIONID=0123456789ABCDEF0123456789ABCDEF
+```
 
 ## The widget
 
@@ -129,7 +140,7 @@ python worklog.py
 
 A ✓ marks entries already uploaded. Those can't be edited. Deleting an entry only removes it locally, never from Jira.
 
-**Meetings.** Select days and click **Meetings** to add meetings from Outlook that have **already ended** and that you **accepted or organised**. All-day, tentative, unanswered, declined and cancelled ones are skipped. Importing twice doesn't duplicate. **This works only with classic ("old") Outlook.** The calendar is read through Outlook's local COM interface, which classic desktop Outlook provides. New Outlook (the one with the "New Outlook" toggle on) and Outlook on the web have no local calendar API, so **Meetings** finds nothing. Switch the toggle off and keep classic Outlook installed, and ideally running, when you import. Absences use the same route.
+**Meetings.** Select days and click **Meetings** to add meetings from Outlook that have **already ended** and that you **accepted or organised**. All-day, tentative, unanswered, declined and cancelled ones are skipped. Importing twice doesn't duplicate. **This works only with classic ("old") Outlook.** The calendar is read through Outlook's local COM interface, which classic desktop Outlook provides. New Outlook (the one with the "New Outlook" toggle on) and Outlook on the web have no local calendar API, so **Meetings** finds nothing. Switch the toggle off and keep classic Outlook installed, and ideally running, when you import. Absences use the same route. If you don't use classic Outlook, set `import_meetings_from_outlook` to `null` in `tasks.json` to hide the button.
 
 **Absences.** The same **Meetings** click also reads your absence events (Outlook "out of office" events, or a subject matching `absence`, `out of office`, `ooo`, `vacation`, `holiday` or `sick`; change it with `absence_match` in `tasks.json`). They appear under the day as `⊘ Absence all day (not uploaded)` and lower that day's target: a 4h absence makes the target 4h, an all-day absence makes it 0 (the day turns green), and the 15:00 nudge follows the lowered target. Multi-day absences, such as 8–9 October, are split per day. Future absences are imported too. Absences are stored separately in `~/.worklog/absences.json` and are **never uploaded**. Re-importing replaces the absences of the selected days. Select an absence row and press `Delete` to remove it.
 
@@ -159,6 +170,25 @@ python tempo_sync.py --from 2026-10-01 --to 2026-10-05 --apply
 - Entries are posted in parallel over keep-alive connections. After an auth or network error it stops instead of retrying everything.
 - Start times are stacked from `day_start` in the order entries were added.
 - An unknown task code asks you to pick a task or skip.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `● Jira: no cookie` | `cookie.txt` is missing or has no `name=value` lines. See [Upload Jira](#upload-jira-session-cookie) |
+| `● Jira: cookie expired` | The session ended (about daily). Copy fresh `MRHSession` and `JSESSIONID` values into `cookie.txt`, then click the badge |
+| `● Tickets: no token` | `tickets.token` is empty or still the `<READ_TOKEN>` placeholder |
+| `● Tickets: token rejected` | The PAT is wrong, expired or revoked. Create a new one |
+| `● Tickets: unreachable` | The tickets Jira needs the VPN or company network, or `tickets.url` is wrong (keep the `/jira` path) |
+| **Meetings** adds nothing | You use new Outlook. Switch to classic Outlook (see above) |
+| Widget closes at start with a `JSONDecodeError` | `tasks.json` is invalid JSON, for example a missing comma or a stray trailing comma. `//` comments are fine |
+| Hotkey does nothing | Another program uses it. Change `hotkey` in `tasks.json` |
+
+## Where your data goes
+
+- Worklog entries: `~/.worklog/entries.json` on your machine. They are sent to the upload Jira only when you click **Sync to Jira** or run `tempo_sync.py --apply`.
+- The cookie in `cookie.txt` is sent only to `jira_url`. The token in `tasks.json` is sent only to `tickets.url`.
+- Meetings are read from your local Outlook and are never sent anywhere except as the descriptions of entries you sync.
 
 ## Notes and limitations
 
