@@ -11,7 +11,8 @@ Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **
 | `store.py` | `load`/`save`/`mark_synced` for `~/.worklog/entries.json`, guarded by a shared `LOCK` |
 | `outlook.py` | `read(first, last)` returns raw calendar events via a PowerShell COM script; `meetings()` and `absences()` classify them (absence = BusyStatus 3 or subject regex; split per day with the overlap in seconds) |
 | `winshell.py` | ctypes: tray icon (`Tray`), global hotkey, balloon `notify`, `style_titlebar`, `single_instance` |
-| `tasks.json` | Config (Jira URL, task codes, settings). Keys are listed in `README.md` |
+| `tickets.py` | `fetch(cfg)`: my in-progress tickets from a second, read-only Jira (Bearer PAT, `tickets.token` in `tasks.json`). `Widget.load_tickets`/`pick_ticket` use it |
+| `tasks.json` | Config (read with `store.load_config`, which allows `//` comments; never use plain `json.loads` on it) (Jira URL, task codes, settings). Keys are listed in `README.md` |
 | `cookie.txt` | **Secret**, git-ignored. Format example in `example/cookie.txt` |
 
 Data lives outside the repo: `~/.worklog/entries.json`, a list of
@@ -21,7 +22,7 @@ Data lives outside the repo: `~/.worklog/entries.json`, a list of
 ## Auth model (important)
 
 PATs are disabled on this Jira. Requests authenticate with browser session cookies: `MRHSession` (VW F5 gateway) **and** `JSESSIONID` (Jira) are both required, plus the header `X-Atlassian-Token: no-check` on POSTs. A gateway rejection shows up as a 302 or 401, not JSON. `tempo_sync.call` turns that into a `SyncError` with `.fatal`.
-`normalize_cookie` accepts `name=value` and `name:"value"` forms, so don't parse `cookie.txt` anywhere else.
+`normalize_cookie` reads one `name=value` per line (spaces dropped, split on the first `=`, `#` comment lines, `;` tolerated), so don't parse `cookie.txt` anywhere else.
 
 Uploads use the native `POST /rest/api/2/issue/<key>/worklog` (not Tempo's own API). `started` needs a UTC offset (`+0200`).
 

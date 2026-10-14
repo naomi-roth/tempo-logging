@@ -90,12 +90,48 @@ def confirm(parent, title, lines, ok_text="OK"):
     return bool(answer and answer[0])
 
 
-def button(parent, text, cmd, width=None):
+class Tip:
+    """Hover hint. `text` is a string, or a callable(event) -> string/None for per-row hints."""
+    def __init__(self, widget, text, per_row=False):
+        self.widget, self.text, self.per_row, self.win, self.job, self.shown = widget, text, per_row, None, None, None
+        widget.bind("<Enter>", self.schedule, add="+")
+        widget.bind("<Motion>", self.schedule if per_row else lambda _: None, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+
+    def schedule(self, event):
+        text = self.text(event) if self.per_row else self.text
+        if text != self.shown:
+            self.hide()
+        if text and not self.win:
+            self.job = self.widget.after(500, lambda: self.show(text, event.x_root, event.y_root))
+
+    def show(self, text, x, y):
+        self.shown = text
+        self.win = tk.Toplevel(self.widget)
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        tk.Label(self.win, text=text, bg=SEL, fg=FG, font=("Segoe UI", 9), padx=8, pady=4,
+                 justify="left", wraplength=420).pack()
+        self.win.geometry(f"+{x + 12}+{y + 18}")
+
+    def hide(self, _=None):
+        if self.job:
+            self.widget.after_cancel(self.job)
+        self.job = self.shown = None
+        if self.win:
+            self.win.destroy()
+            self.win = None
+
+
+def button(parent, text, cmd, width=None, tip=None):
     b = tk.Button(parent, text=text, command=cmd, width=width, font=FONT, bg=PANEL, fg=FG,
                   activebackground=SEL, activeforeground=FG, relief="flat", bd=0,
                   padx=10, pady=4, cursor="hand2")
     b.bind("<Enter>", lambda _: b.config(bg=SEL))
     b.bind("<Leave>", lambda _: b.config(bg=PANEL))
+    if tip:
+        Tip(b, tip)
     return b
 
 
@@ -105,7 +141,7 @@ class Widget:
         self.tray = tray
         self.editing = None  # id of the entry being edited, if any
         self.last_days = []  # days of the last multi-day add, re-selected afterwards
-        cfg = json.loads(CONFIG.read_text())
+        cfg = store.load_config(CONFIG)
         self.tasks = cfg["tasks"]
         self.target_s = round(float(cfg.get("target_hours", 8)) * 3600)  # per weekday
         self.meeting_code = next((t["code"] for t in self.tasks
@@ -142,21 +178,22 @@ class Widget:
 
         top = tk.Frame(root, bg=BG)
         top.pack(fill="x", padx=12, pady=(12, 6))
-        button(top, "‹", lambda: self.shift(-7), 2).pack(side="left")
+        button(top, "‹", lambda: self.shift(-7), 2, "Previous week").pack(side="left")
         self.date_var = tk.StringVar()
         de = tk.Entry(top, textvariable=self.date_var, width=11, justify="center", font=FONT_B,
                       bg=PANEL, fg=FG, insertbackground=FG, relief="flat", bd=0)
         de.pack(side="left", padx=6, ipady=5)
         de.bind("<Return>", self.set_date)
-        button(top, "›", lambda: self.shift(7), 2).pack(side="left")
-        button(top, "Today", lambda: self.goto(date.today())).pack(side="left", padx=6)
-        button(top, "↻ Reload", self.reload).pack(side="left")
+        button(top, "›", lambda: self.shift(7), 2, "Next week").pack(side="left")
+        button(top, "Today", lambda: self.goto(date.today()), tip="Jump to this week").pack(side="left", padx=6)
+        button(top, "↻ Reload", self.reload, tip="Re-read entries from disk (F5)").pack(side="left")
         root.bind("<F5>", lambda _: self.reload())
         self.total = tk.Label(top, bg=BG, fg=ACCENT, font=("Segoe UI Semibold", 12))
         self.total.pack(side="right")
         self.login = tk.Label(top, text="● Jira ...", bg=BG, fg=MUTED, font=("Segoe UI", 9), cursor="hand2")
         self.login.pack(side="right", padx=12)
         self.login.bind("<Button-1>", lambda _: self.check_login())
+        Tip(self.login, "Whether your Jira session cookie works. Click to recheck")
 
         wrap = tk.Frame(root, bg=PANEL)
         wrap.pack(fill="both", expand=True, padx=12, pady=6)
@@ -173,6 +210,20 @@ class Widget:
         self.box.bind("<Control-c>", lambda _: self.copy())
         self.box.bind("<Control-v>", lambda _: self.paste())
         self.box.bind("<Delete>", lambda _: self.delete())
+
+        self.tickets = []  # in-progress tickets from the read-only Jira; see tickets.py
+        if cfg.get("tickets"):
+            head = tk.Label(root, text="● My tickets in progress  (click to fill the line, ↻ to reload)", anchor="w",
+                            bg=BG, fg=MUTED, font=("Segoe UI", 9), cursor="hand2")
+            head.pack(fill="x", padx=14)
+            head.bind("<Button-1>", lambda _: self.load_tickets())
+            self.tickets_head = head
+            self.ticket_box = tk.Listbox(root, height=4, activestyle="none", exportselection=False,
+                                         font=("Segoe UI", 10), bg=PANEL, fg=FG, selectbackground=SEL,
+                                         selectforeground=FG, relief="flat", bd=0, highlightthickness=0)
+            self.ticket_box.pack(fill="x", padx=12, pady=(2, 4))
+            self.ticket_box.bind("<<ListboxSelect>>", self.pick_ticket)
+            Tip(self.ticket_box, lambda e: self.ticket_tip(e), per_row=True)
 
         self.target_lbl = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=("Segoe UI", 9))
         self.target_lbl.pack(fill="x", padx=14)
@@ -191,19 +242,21 @@ class Widget:
 
         bottom = tk.Frame(root, bg=BG)
         bottom.pack(fill="x", padx=12, pady=(0, 4))
-        button(bottom, "Edit", self.edit).pack(side="left")
-        button(bottom, "Copy", self.copy).pack(side="left", padx=6)
-        button(bottom, "Paste", self.paste).pack(side="left")
-        button(bottom, "Delete", self.delete).pack(side="left", padx=6)
-        button(bottom, "Undo", self.undo).pack(side="left")
-        button(bottom, "Mon–Fri", self.select_weekdays).pack(side="left", padx=6)
-        button(bottom, "Meetings", self.import_meetings).pack(side="left")
-        button(bottom, "Sync to Jira", self.sync).pack(side="right")
+        button(bottom, "Edit", self.edit, tip="Edit the selected entry (F2 or double-click)").pack(side="left")
+        button(bottom, "Copy", self.copy, tip="Copy the selected entries (Ctrl+C)").pack(side="left", padx=6)
+        button(bottom, "Paste", self.paste, tip="Paste copied entries onto the selected day (Ctrl+V)").pack(side="left")
+        button(bottom, "Delete", self.delete, tip="Delete the selected entries (Del). Undo brings them back").pack(side="left", padx=6)
+        button(bottom, "Undo", self.undo, tip="Undo the last change (Ctrl+Z). Never un-syncs an entry").pack(side="left")
+        button(bottom, "Mon–Fri", self.select_weekdays, tip="Select all weekdays, so one line is added to each").pack(side="left", padx=6)
+        button(bottom, "Meetings", self.import_meetings, tip="Import accepted meetings from Outlook for the selected days").pack(side="left")
+        button(bottom, "Sync to Jira", self.sync, tip="Upload all unsynced entries to Jira (asks to confirm first)").pack(side="right")
         self.status = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=("Segoe UI", 9))
         self.status.pack(fill="x", padx=14, pady=(0, 10))
         self.say("CODE-time-description  ·  Up: earlier lines  ·  Tab: autocomplete")
         self.refresh()
         self.check_login()
+        if cfg.get("tickets"):
+            self.load_tickets()
         if self.reminder_at:
             root.after(5000, self.reminder_tick)
         if sys.platform == "win32":
@@ -351,6 +404,64 @@ class Widget:
 
         threading.Thread(target=work, daemon=True).start()
         self.root.after(200, poll)
+
+    # --- my in-progress tickets (read-only second Jira) ------------------
+    def load_tickets(self):
+        """Fetch in the background; the Tk thread polls the result (same pattern as check_login)."""
+        import tickets
+        self.tickets_head.config(text="● My tickets ...", fg=MUTED)
+        result = {}
+
+        def work():
+            try:
+                result["tickets"] = tickets.fetch(self.cfg["tickets"])
+            except tickets.TicketError as e:
+                result["error"] = str(e)
+
+        def poll():
+            if not result:
+                self.root.after(200, poll)
+                return
+            self.ticket_box.delete(0, "end")
+            if "error" in result:
+                self.tickets_head.config(text=f"● Tickets: {result['error']}  (click to retry)", fg=ERR)
+                return
+            self.tickets = result["tickets"]
+            for t in self.tickets:
+                self.ticket_box.insert("end", f"{t['key']}   {t['summary']}")
+            self.tickets_head.config(text=f"● My tickets in progress: {len(self.tickets)}  (click one to fill the line)",
+                                     fg=OK)
+
+        threading.Thread(target=work, daemon=True).start()
+        self.root.after(200, poll)
+
+    def ticket_tip(self, event):
+        """Hover text for a ticket row: key and the full, unedited title."""
+        i = self.ticket_box.nearest(event.y)
+        box = self.ticket_box.bbox(i) if 0 <= i < len(self.tickets) else None
+        if not box or event.y > box[1] + box[3]:  # pointer is in the empty space below the last row
+            return None
+        t = self.tickets[i]
+        return t["key"] + "\n" + t["summary"]
+
+    def pick_ticket(self, _):
+        """Fill the input with 'BE -  - <title>' and park the cursor on the duration."""
+        sel = self.ticket_box.curselection()
+        if not sel or self.editing:
+            return
+        code = self.cfg["tickets"].get("code", "BE")
+        prefix = f"{code} - "
+        summary = self.tickets[sel[0]]["summary"]
+        title = " ".join(re.sub(r"\[[^\]]*\]", " ", summary).split()) or summary  # drop '[TAG]' prefixes
+        self.entry.delete(0, "end")
+        self.entry.insert(0, f"{prefix} - {title}")
+        self.ticket_box.selection_clear(0, "end")
+
+        def park():  # after the click finishes, or the listbox takes the focus back
+            self.entry.focus_set()
+            self.entry.icursor(len(prefix))
+            self.live_check(None)
+        self.root.after(30, park)
 
     def sync(self):
         """Upload every unsynced entry after a confirmation, then refresh the ✓ marks."""
@@ -788,7 +899,7 @@ if __name__ == "__main__":
         keep = winshell.single_instance()
         if keep is None:
             sys.exit("Worklog is already running (check the tray).")
-        hotkey = json.loads(CONFIG.read_text()).get("hotkey", "win+shift+w")
+        hotkey = store.load_config(CONFIG).get("hotkey", "win+shift+w")
         tray = winshell.Tray(hotkey)
     root = tk.Tk()
     Widget(root, tray)

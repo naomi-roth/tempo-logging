@@ -1,9 +1,16 @@
 """The entries file shared by the widget (worklog.py) and the uploader (tempo_sync.py)."""
-import json, threading, uuid
+import json, re, threading, uuid
 from pathlib import Path
 
 STORE = Path.home() / ".worklog" / "entries.json"
 LOCK = threading.RLock()  # the widget thread and the upload threads both write the file
+
+
+def load_config(path):
+    """tasks.json with // comments allowed (whole-line or trailing; '//' inside a string, e.g. a URL, is kept)."""
+    text = re.sub(r'"(?:[^"\\]|\\.)*"|//[^\n]*', lambda m: m[0] if m[0][0] == '"' else "",
+                  Path(path).read_text(encoding="utf-8"))
+    return json.loads(text)
 
 
 def load():

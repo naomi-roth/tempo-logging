@@ -38,13 +38,18 @@ def read_cookie_file():
 
 
 def normalize_cookie(text):
-    """Accepts name=value or name:"value" pairs (quoted or not, ';' or line separated,
-    optional leading 'Cookie:') and returns a valid Cookie header value, or None."""
-    text = " ".join(text.split())
-    if text.lower().startswith("cookie:"):
-        text = text[7:].strip()
-    pairs = re.findall(r'([A-Za-z_][\w.~-]*)\s*[:=]\s*"?([^";\s]+)"?', text)
-    return "; ".join(f"{k}={v}" for k, v in pairs) or None
+    """One name=value per line (all spaces are dropped, split on the first '='; a trailing ';' is
+    tolerated, so a pasted 'a=1; b=2' header still works). Lines starting with '#' are comments.
+    Returns a valid Cookie header value, or None."""
+    pairs = []
+    for line in re.split(r"[\r\n;]+", text):
+        line = "".join(line.split())
+        if line.lower().startswith("cookie:"):
+            line = line[7:]
+        name, eq, value = line.partition("=")
+        if eq and name and value and not name.startswith("#"):
+            pairs.append(f"{name}={value}")
+    return "; ".join(pairs) or None
 
 
 def daterange(a, b):
@@ -73,7 +78,7 @@ def auth_headers(cfg):
     """Request headers with credentials. Raises SyncError if there are none."""
     env_cookie = os.environ.get(cfg.get("cookie_env", "JIRA_COOKIE"))
     cookie = (normalize_cookie(env_cookie) if env_cookie else None) or read_cookie_file()
-    token = os.environ.get(cfg.get("token_env", "JIRA_TOKEN"))
+    token = os.environ.get("JIRA_TOKEN")
     headers = {"Content-Type": "application/json", "Accept": "application/json",
                "X-Atlassian-Token": "no-check"}
     if cookie:
@@ -185,7 +190,7 @@ def main():
     else:
         days = a.date
 
-    cfg = json.loads(CONFIG.read_text())
+    cfg = store.load_config(CONFIG)
     tasks = cfg["tasks"]
     entries = store.load()
     if days is None:  # default: every day that still has unsynced entries
