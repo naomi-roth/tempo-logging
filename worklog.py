@@ -437,7 +437,10 @@ class Widget:
         path = tempo_sync.COOKIE_FILE
         if not path.exists():
             path.touch()  # startfile needs a file to open
-        os.startfile(path)
+        if MAC:
+            subprocess.run(["open", "-t", str(path)])  # -t: default text editor, not whatever .txt maps to
+        else:
+            os.startfile(path)
 
         def arm():
             # one-shot: the first time this window regains focus after the editor

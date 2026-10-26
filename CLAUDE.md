@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **Jira Server/Data Center** (Tempo reads native Jira worklogs). Windows only, Python 3 stdlib only (no pip dependencies, keep it that way). User docs are in `README.md`.
+Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **Jira Server/Data Center** (Tempo reads native Jira worklogs). Windows and macOS (macOS has no tray, hotkey, notifications or Outlook import), Python 3 stdlib only (no pip dependencies, keep it that way). User docs are in `README.md`.
 
 ## Layout
 

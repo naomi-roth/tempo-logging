@@ -26,7 +26,7 @@ CODE-time-description      BE-2h-fixed a bug
 1. **Windows** or **macOS** with **Python 3.8+** (`tkinter` is bundled, nothing to `pip install`). Meetings import also needs **classic Outlook** (see [Meetings](#the-widget)).
 2. **Copy `example/tasks.json` to `tasks.json`** and edit it. The example explains every setting in `//` comments and has the optional ones commented out. `tasks.json` accepts `//` comments. Details: [`tasks.json`](#tasksjson).
 3. **Get your credentials** (next section). There are two, for two different Jira servers.
-4. Run `python worklog.py`, then type `BE-2h-something` and press Enter. Nothing is uploaded until you click **Sync to Jira**.
+4. Run `python worklog.py` (macOS: `python3 worklog.py`), then type `BE-2h-something` and press Enter. Nothing is uploaded until you click **Sync to Jira**.
 
 You only need the upload credentials to sync. Without them you can still log time locally.
 
@@ -151,14 +151,22 @@ A ✓ marks entries already uploaded. Those can't be edited. Deleting an entry o
 
 **Sync to Jira.** Click **Sync to Jira**, check the summary, confirm. The `● Jira` badge shows whether your cookie works (click to recheck).
 
-**macOS differences.** No tray icon, global hotkey, reminder notification or Outlook import (those use Windows APIs), so the X closes the widget; `--install-startup` adds a LaunchAgent instead. Shortcuts use `Cmd` instead of `Ctrl`. Use a python.org or Homebrew Python with a recent Tk (the system Tk 8.5 renders poorly).
+**macOS.** The widget, uploads, tickets and `cookie.txt` all work the same. Setup and differences:
+
+1. Install Python 3.8+ from python.org or Homebrew (`brew install python-tk`). The system Python's Tk 8.5 renders poorly.
+2. Run `python3 worklog.py` and `python3 tempo_sync.py` (use `python3`, not `python`).
+3. Shortcuts use `Cmd` instead of `Ctrl` (`Cmd+C`, `Cmd+V`, `Cmd+Z`); hints show the right key.
+4. Clicking a red `● Jira` badge opens `cookie.txt` in your default text editor (`open -t`).
+5. `python3 worklog.py --install-startup` writes a LaunchAgent (`~/Library/LaunchAgents/com.worklog.widget.plist`) that starts the widget at next login. `--uninstall-startup` removes it.
+
+Not available on macOS (they use Windows APIs): tray icon, global hotkey, end-of-day notification, and the **Meetings** button, absences and holidays (classic Outlook COM). The X closes the widget, and the Outlook settings in `tasks.json` are ignored.
 
 **Tray and hotkey (Windows).** The X and `Esc` hide the widget to the tray. The hotkey toggles it. Right-click the tray icon to quit.
 
 **Start at login.**
 
 ```powershell
-python worklog.py --install-startup     # adds a shortcut to the Startup folder, starts hidden
+python worklog.py --install-startup     # Windows: Startup-folder shortcut, starts hidden. macOS: LaunchAgent
 python worklog.py --uninstall-startup
 ```
 
