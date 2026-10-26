@@ -15,29 +15,38 @@ $ErrorActionPreference = 'Stop'
 $from = [datetime]::ParseExact($env:OL_FROM, 'yyyy-MM-dd', $null)
 $to = [datetime]::ParseExact($env:OL_TO, 'yyyy-MM-dd', $null).AddDays(1)
 $cal = (New-Object -ComObject Outlook.Application).GetNamespace('MAPI').GetDefaultFolder(9)
-$items = $cal.Items
-$items.IncludeRecurrences = $true
-$items.Sort('[Start]')
+# The default calendar, plus the named sub-calendars (e.g. "Czechia holidays") flagged as holidays.
+$folders = @(@{ f = $cal; h = $false })
+foreach ($n in ($env:OL_HOL -split '\|' | Where-Object { $_ })) {
+  try { $folders += @{ f = $cal.Folders.Item($n); h = $true } } catch {}
+}
 $out = @()
-$seen = 0
-# Items.Restrict returned nothing here, so walk the date-sorted items and stop once past the range.
-foreach ($i in $items) {
-  if (++$seen -gt 20000) { break }
-  if ($i.Start -ge $to) { break }
-  if ($i.End -le $from) { continue }
-  $out += [pscustomobject]@{
-    subject = $i.Subject; start = $i.Start.ToString('s'); end = $i.End.ToString('s')
-    allDay = [bool]$i.AllDayEvent; busy = [int]$i.BusyStatus
-    response = [int]$i.ResponseStatus; status = [int]$i.MeetingStatus }
+foreach ($x in $folders) {
+  $items = $x.f.Items
+  $items.IncludeRecurrences = $true
+  $items.Sort('[Start]')
+  $seen = 0
+  # Items.Restrict returned nothing here, so walk the date-sorted items and stop once past the range.
+  foreach ($i in $items) {
+    if (++$seen -gt 20000) { break }
+    if ($i.Start -ge $to) { break }
+    if ($i.End -le $from) { continue }
+    $out += [pscustomobject]@{
+      subject = $i.Subject; start = $i.Start.ToString('s'); end = $i.End.ToString('s')
+      allDay = [bool]$i.AllDayEvent; busy = [int]$i.BusyStatus
+      response = [int]$i.ResponseStatus; status = [int]$i.MeetingStatus; holiday = $x.h }
+  }
 }
 ConvertTo-Json -InputObject @($out) -Compress
 """
 
 
-def read(first, last, timeout=120):
+def read(first, last, timeout=120, holiday_calendars=()):
     """All events overlapping `first`..`last` (dates, inclusive) as dicts with datetime start/end.
+    Events from the `holiday_calendars` (sub-calendar names) carry holiday=True.
     Raises RuntimeError with a readable message."""
-    env = dict(os.environ, OL_FROM=first.isoformat(), OL_TO=last.isoformat())
+    env = dict(os.environ, OL_FROM=first.isoformat(), OL_TO=last.isoformat(),
+               OL_HOL="|".join(holiday_calendars))
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-Command", SCRIPT], env=env,
                            capture_output=True, timeout=timeout)
@@ -53,7 +62,7 @@ def read(first, last, timeout=120):
 
 
 def is_absence(event, pattern=ABSENCE_PATTERN):
-    return event["busy"] == 3 or bool(re.search(pattern, event["subject"], re.I))
+    return event.get("holiday", False) or event["busy"] == 3 or bool(re.search(pattern, event["subject"], re.I))
 
 
 def _skipped(event):
@@ -81,6 +90,7 @@ def absences(events, pattern=ABSENCE_PATTERN):
             seconds = round((hi - lo).total_seconds())
             if seconds > 0:
                 out.append({"date": day.isoformat(), "seconds": seconds, "title": e["subject"],
+                            "holiday": bool(e.get("holiday")),
                             "key": f"{e['start']:%Y-%m-%dT%H:%M}|{e['subject']}|{day}"})
             day += timedelta(days=1)
     return out

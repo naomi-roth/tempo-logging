@@ -38,7 +38,7 @@ def read_cookie_file():
 
 
 def normalize_cookie(text):
-    """One name=value per line (all spaces are dropped, split on the first '='; a trailing ';' is
+    """One name=value (or name:"value") per line (all spaces are dropped, split on the first '=' or ':'; a trailing ';' is
     tolerated, so a pasted 'a=1; b=2' header still works). Lines starting with '#' are comments.
     Returns a valid Cookie header value, or None."""
     pairs = []
@@ -46,8 +46,12 @@ def normalize_cookie(text):
         line = "".join(line.split())
         if line.lower().startswith("cookie:"):
             line = line[7:]
-        name, eq, value = line.partition("=")
-        if eq and name and value and not name.startswith("#"):
+        # name=value or name:"value" (browser devtools style); the name never holds '=' or ':'
+        m = re.match(r"([^=:]+)[=:](.*)", line)
+        if not m or m.group(1).startswith("#"):
+            continue
+        name, value = m.group(1), m.group(2).strip('"\'')
+        if value:
             pairs.append(f"{name}={value}")
     return "; ".join(pairs) or None
 

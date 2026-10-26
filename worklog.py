@@ -51,7 +51,20 @@ def fmt(seconds):
 
 BG, PANEL, FG, MUTED = "#1e1f26", "#2a2c36", "#e8e9ef", "#8b8fa3"
 ACCENT, OK, ERR, SEL = "#7c8cff", "#5ccf9a", "#ff7a8a", "#3a3d4f"
-FONT, FONT_B = ("Segoe UI", 10), ("Segoe UI Semibold", 10)
+HOLIDAY = "#f2c94c"
+MAC = sys.platform == "darwin"
+MOD = "Command" if MAC else "Control"  # Tk event modifier for the shortcut key
+MOD_NAME = "Cmd" if MAC else "Ctrl"  # the same, as shown in hints
+MONO = "Menlo" if MAC else "Consolas"
+
+
+def font(size, bold=False):
+    if MAC:
+        return ("Helvetica Neue", size, "bold") if bold else ("Helvetica Neue", size)
+    return ("Segoe UI Semibold" if bold else "Segoe UI", size)
+
+
+FONT, FONT_B = font(10), font(10, True)
 CHECK, DOT = "✓", "·"
 
 
@@ -63,7 +76,7 @@ def confirm(parent, title, lines, ok_text="OK"):
     win.attributes("-topmost", True)
     win.resizable(False, False)
     answer = []
-    tk.Label(win, text=title, bg=BG, fg=FG, font=("Segoe UI Semibold", 12)).pack(anchor="w", padx=20, pady=(16, 4))
+    tk.Label(win, text=title, bg=BG, fg=FG, font=font(12, True)).pack(anchor="w", padx=20, pady=(16, 4))
     for line in lines:
         tk.Label(win, text=line, bg=BG, fg=MUTED, font=FONT, justify="left").pack(anchor="w", padx=20)
     row = tk.Frame(win, bg=BG)
@@ -111,7 +124,7 @@ class Tip:
         self.win = tk.Toplevel(self.widget)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
-        tk.Label(self.win, text=text, bg=SEL, fg=FG, font=("Segoe UI", 9), padx=8, pady=4,
+        tk.Label(self.win, text=text, bg=SEL, fg=FG, font=font(9), padx=8, pady=4,
                  justify="left", wraplength=420).pack()
         self.win.geometry(f"+{x + 12}+{y + 18}")
 
@@ -125,9 +138,13 @@ class Tip:
 
 
 def button(parent, text, cmd, width=None, tip=None):
-    b = tk.Button(parent, text=text, command=cmd, width=width, font=FONT, bg=PANEL, fg=FG,
-                  activebackground=SEL, activeforeground=FG, relief="flat", bd=0,
-                  padx=10, pady=4, cursor="hand2")
+    if MAC:  # Aqua's tk.Button ignores bg/fg, so a clickable Label gives the same flat look
+        b = tk.Label(parent, text=text, width=width, font=FONT, bg=PANEL, fg=FG, padx=10, pady=4, cursor="pointinghand")
+        b.bind("<Button-1>", lambda _: cmd())
+    else:
+        b = tk.Button(parent, text=text, command=cmd, width=width, font=FONT, bg=PANEL, fg=FG,
+                      activebackground=SEL, activeforeground=FG, relief="flat", bd=0,
+                      padx=10, pady=4, cursor="hand2")
     b.bind("<Enter>", lambda _: b.config(bg=SEL))
     b.bind("<Leave>", lambda _: b.config(bg=PANEL))
     if tip:
@@ -189,17 +206,18 @@ class Widget:
         button(top, "Today", lambda: self.goto(date.today()), tip="Jump to this week").pack(side="left", padx=6)
         button(top, "↻ Reload", self.reload, tip="Re-read entries from disk (F5)").pack(side="left")
         root.bind("<F5>", lambda _: self.reload())
-        self.total = tk.Label(top, bg=BG, fg=ACCENT, font=("Segoe UI Semibold", 12))
+        self.total = tk.Label(top, bg=BG, fg=ACCENT, font=font(12, True))
         self.total.pack(side="right")
-        self.login = tk.Label(top, text="● Jira ...", bg=BG, fg=MUTED, font=("Segoe UI", 9), cursor="hand2")
+        self.login = tk.Label(top, text="● Jira ...", bg=BG, fg=MUTED, font=font(9), cursor="hand2")
         self.login.pack(side="right", padx=12)
-        self.login.bind("<Button-1>", lambda _: self.check_login())
-        Tip(self.login, "Whether your Jira session cookie works. Click to recheck")
+        self.login.bind("<Button-1>", lambda _: self.login_click())
+        Tip(self.login, "Whether your Jira session cookie works. Click to recheck; "
+                        "if it is expired, click opens cookie.txt so you can paste a new one")
 
         wrap = tk.Frame(root, bg=PANEL)
         wrap.pack(fill="both", expand=True, padx=12, pady=6)
         self.box = tk.Listbox(wrap, activestyle="none", selectmode="extended", exportselection=False,
-                              font=("Consolas", 10), bg=PANEL, fg=FG, selectbackground=SEL,
+                              font=(MONO, 10), bg=PANEL, fg=FG, selectbackground=SEL,
                               selectforeground=FG, relief="flat", bd=0, highlightthickness=0)
         self.box.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
         sb = ttk.Scrollbar(wrap, orient="vertical", style="Slim.Vertical.TScrollbar", command=self.box.yview)
@@ -208,27 +226,27 @@ class Widget:
         self.box.bind("<<ListboxSelect>>", self.on_select)
         self.box.bind("<Double-Button-1>", lambda _: self.edit())
         self.box.bind("<F2>", lambda _: self.edit())
-        self.box.bind("<Control-c>", lambda _: self.copy())
-        self.box.bind("<Control-v>", lambda _: self.paste())
+        self.box.bind(f"<{MOD}-c>", lambda _: self.copy())
+        self.box.bind(f"<{MOD}-v>", lambda _: self.paste())
         self.box.bind("<Delete>", lambda _: self.delete())
 
         self.tickets = []  # in-progress tickets from the read-only Jira; see tickets.py
         if cfg.get("tickets"):
             head = tk.Label(root, text="● My tickets in progress  (click to fill the line, ↻ to reload)", anchor="w",
-                            bg=BG, fg=MUTED, font=("Segoe UI", 9), cursor="hand2")
+                            bg=BG, fg=MUTED, font=font(9), cursor="hand2")
             head.pack(fill="x", padx=14)
             head.bind("<Button-1>", lambda _: self.load_tickets())
             self.tickets_head = head
             self.ticket_box = tk.Listbox(root, height=4, activestyle="none", exportselection=False,
-                                         font=("Segoe UI", 10), bg=PANEL, fg=FG, selectbackground=SEL,
+                                         font=font(10), bg=PANEL, fg=FG, selectbackground=SEL,
                                          selectforeground=FG, relief="flat", bd=0, highlightthickness=0)
             self.ticket_box.pack(fill="x", padx=12, pady=(2, 4))
             self.ticket_box.bind("<<ListboxSelect>>", self.pick_ticket)
             Tip(self.ticket_box, lambda e: self.ticket_tip(e), per_row=True)
 
-        self.target_lbl = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.target_lbl = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=font(9))
         self.target_lbl.pack(fill="x", padx=14)
-        self.entry = tk.Entry(root, font=("Segoe UI", 11), bg=PANEL, fg=FG, insertbackground=ACCENT,
+        self.entry = tk.Entry(root, font=font(11), bg=PANEL, fg=FG, insertbackground=ACCENT,
                               relief="flat", bd=0, highlightthickness=2,
                               highlightbackground=PANEL, highlightcolor=ACCENT)
         self.entry.pack(fill="x", padx=12, pady=(2, 6), ipady=7)
@@ -239,27 +257,29 @@ class Widget:
         self.entry.bind("<Down>", lambda _: self.recall(-1))
         self.entry.bind("<Tab>", self.complete)
         self.entry.focus()
-        root.bind("<Control-z>", self.on_undo_key)
+        root.bind(f"<{MOD}-z>", self.on_undo_key)
 
         bottom = tk.Frame(root, bg=BG)
         bottom.pack(fill="x", padx=12, pady=(0, 4))
         button(bottom, "Edit", self.edit, tip="Edit the selected entry (F2 or double-click)").pack(side="left")
-        button(bottom, "Copy", self.copy, tip="Copy the selected entries (Ctrl+C)").pack(side="left", padx=6)
-        button(bottom, "Paste", self.paste, tip="Paste copied entries onto the selected day (Ctrl+V)").pack(side="left")
+        button(bottom, "Copy", self.copy, tip=f"Copy the selected entries ({MOD_NAME}+C)").pack(side="left", padx=6)
+        button(bottom, "Paste", self.paste, tip=f"Paste copied entries onto the selected day ({MOD_NAME}+V)").pack(side="left")
         button(bottom, "Delete", self.delete, tip="Delete the selected entries (Del). Undo brings them back").pack(side="left", padx=6)
-        button(bottom, "Undo", self.undo, tip="Undo the last change (Ctrl+Z). Never un-syncs an entry").pack(side="left")
+        button(bottom, "Undo", self.undo, tip=f"Undo the last change ({MOD_NAME}+Z). Never un-syncs an entry").pack(side="left")
         button(bottom, "Mon–Fri", self.select_weekdays, tip="Select all weekdays, so one line is added to each").pack(side="left", padx=6)
-        if cfg.get("import_meetings_from_outlook", True):  # null or false hides the button
+        if sys.platform == "win32" and self.outlook_flag("import_meetings_from_outlook"):  # needs Outlook COM; null or false hides it
             button(bottom, "Meetings", self.import_meetings,
                    tip="Import accepted meetings from Outlook for the selected days").pack(side="left")
         button(bottom, "Sync to Jira", self.sync, tip="Upload all unsynced entries to Jira (asks to confirm first)").pack(side="right")
-        self.status = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=("Segoe UI", 9))
+        self.status = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=font(9))
         self.status.pack(fill="x", padx=14, pady=(0, 10))
         self.say("CODE-time-description  ·  Up: earlier lines  ·  Tab: autocomplete")
         self.refresh()
         self.check_login()
         if cfg.get("tickets"):
             self.load_tickets()
+        if sys.platform == "win32" and (self.outlook_flag("import_absences_from_outlook") or self.holiday_names()):
+            self.load_absences_ahead()
         if self.reminder_at:
             root.after(5000, self.reminder_tick)
         if sys.platform == "win32":
@@ -402,11 +422,31 @@ class Widget:
             if not result:
                 self.root.after(200, poll)
                 return
+            self.login_ok = result["ok"]
             self.login.config(text="● Jira" if result["ok"] else f"● Jira: {result['msg']}",
                               fg=OK if result["ok"] else ERR)
 
         threading.Thread(target=work, daemon=True).start()
         self.root.after(200, poll)
+
+    def login_click(self):
+        """Working cookie: recheck. Broken cookie: open cookie.txt, recheck when the user is back."""
+        if getattr(self, "login_ok", True):
+            return self.check_login()
+        import tempo_sync
+        path = tempo_sync.COOKIE_FILE
+        if not path.exists():
+            path.touch()  # startfile needs a file to open
+        os.startfile(path)
+
+        def arm():
+            # one-shot: the first time this window regains focus after the editor
+            def back(_):
+                self.root.unbind("<FocusIn>", fid)
+                self.check_login()
+            fid = self.root.bind("<FocusIn>", back, add="+")
+
+        self.root.after(1500, arm)  # let focus leave for the editor first
 
     # --- my in-progress tickets (read-only second Jira) ------------------
     def load_tickets(self):
@@ -586,7 +626,7 @@ class Widget:
         else:
             days = self.target_days()
             names = ", ".join(d.strftime("%a %d.%m.") for d in days)
-            hint = "Ctrl+click days to add to several" if len(days) == 1 else f"{len(days)} days"
+            hint = f"{MOD_NAME}+click days to add to several" if len(days) == 1 else f"{len(days)} days"
             text = f"Adding to {names}  ·  {hint}"
         self.target_lbl.config(text=text, fg=ACCENT if self.editing else MUTED)
 
@@ -618,8 +658,9 @@ class Widget:
             for a in ab:  # display only: never in entries.json, so never uploaded
                 self.rows.append(("absence", a))
                 length = "all day" if a["seconds"] >= self.target_s else fmt(a["seconds"])
-                self.box.insert("end", f"   ⊘  Absence  {length}  ·  {a['title']}  (not uploaded)")
-                self.box.itemconfig(self.box.size() - 1, fg=MUTED)
+                label = "Public holiday" if a.get("holiday") else "Absence"
+                self.box.insert("end", f"   ⊘  {label}  {length}  ·  {a['title']}  (not uploaded)")
+                self.box.itemconfig(self.box.size() - 1, fg=HOLIDAY if a.get("holiday") else MUTED)
             for e in es:
                 self.rows.append(("entry", e))
                 tick = CHECK if e.get("synced") else DOT
@@ -766,9 +807,9 @@ class Widget:
         self.clip = [dict(e) for e in self.selected_entries()]
         if self.clip:
             n = len(self.clip)
-            self.say(f"Copied {n} entr{'y' if n == 1 else 'ies'}. Click a day, then Paste (Ctrl+V)", "ok")
+            self.say(f"Copied {n} entr{'y' if n == 1 else 'ies'}. Click a day, then Paste ({MOD_NAME}+V)", "ok")
         else:
-            self.say("Select one or more entries first (Ctrl/Shift+click)", "err")
+            self.say(f"Select one or more entries first ({MOD_NAME}/Shift+click)", "err")
 
     def paste(self):
         if not self.clip:
@@ -799,12 +840,67 @@ class Widget:
 
         def work():
             try:
-                result["events"] = outlook.read(min(days), max(days))
+                result["events"] = outlook.read(min(days), max(days), holiday_calendars=self.holiday_names())
             except Exception as e:
                 result["error"] = str(e)
 
         threading.Thread(target=work, daemon=True).start()
         self.root.after(200, lambda: self.finish_import(result, days))
+
+    def outlook_flag(self, key):
+        """Outlook import switches default to on; null or false turns one off."""
+        return bool(self.cfg.get(key, True))
+
+    def holiday_names(self):
+        """Sub-calendars to read public holidays from; empty when holidays are switched off."""
+        if not self.outlook_flag("import_holidays_from_outlook"):
+            return []
+        return list(self.cfg.get("holiday_outlook_calendar_names") or [])
+
+    def merge_absences(self, events, day_keys):
+        """Absences and holidays are display-only (they lower that day's target). Re-reading replaces
+        the enabled kinds for `day_keys`, so one removed from Outlook disappears here too, while a kind
+        that is switched off is left as it was. Returns the fresh ones."""
+        import outlook
+        pattern = self.cfg.get("absence_match", outlook.ABSENCE_PATTERN)
+        kinds = set()  # is_holiday values we may replace
+        if self.outlook_flag("import_absences_from_outlook"):
+            kinds.add(False)
+        if self.holiday_names():
+            kinds.add(True)
+        fresh = [a for a in outlook.absences(events, pattern)
+                 if a["date"] in day_keys and bool(a.get("holiday")) in kinds]
+        keep = [a for a in store.load_absences()
+                if a["date"] not in day_keys or bool(a.get("holiday")) not in kinds]
+        store.save_absences(keep + fresh)
+        return fresh
+
+    def load_absences_ahead(self):
+        """On startup: absences and public holidays for the next month, read in the background.
+        Meetings are not touched. Same polling pattern as import_meetings."""
+        import outlook
+        first = date.today()
+        days = {(first + timedelta(days=i)).isoformat() for i in range(32)}
+        result = {}
+
+        def work():
+            try:
+                result["events"] = outlook.read(first, first + timedelta(days=31), holiday_calendars=self.holiday_names())
+            except Exception as e:
+                result["error"] = str(e)
+
+        def poll():
+            if not result:
+                self.root.after(200, poll)
+                return
+            if "error" in result:
+                self.say(result["error"], "err")
+                return
+            self.merge_absences(result["events"], days)
+            self.reload(quiet=True)
+
+        threading.Thread(target=work, daemon=True).start()
+        self.root.after(200, poll)
 
     def finish_import(self, result, days):
         if not result:  # still running
@@ -816,11 +912,7 @@ class Widget:
             return
         import outlook
         pattern = self.cfg.get("absence_match", outlook.ABSENCE_PATTERN)
-        day_keys = {d.isoformat() for d in days}
-        # Absences are display-only (they lower that day's target). Re-importing replaces them for the
-        # selected days, so one removed from Outlook disappears here too.
-        fresh = [a for a in outlook.absences(result["events"], pattern) if a["date"] in day_keys]
-        store.save_absences([a for a in store.load_absences() if a["date"] not in day_keys] + fresh)
+        fresh = self.merge_absences(result["events"], {d.isoformat() for d in days})
 
         self.snapshot()
         now, entries = datetime.now(), load()
@@ -867,14 +959,24 @@ class Widget:
 
 
 def startup_link():
+    if MAC:
+        return Path.home() / "Library/LaunchAgents/com.worklog.widget.plist"
     return Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Startup/Worklog.lnk"
 
 
 def install_startup():
-    """Shortcut in the Startup folder that launches the widget hidden at login."""
+    """Launches the widget at login: a Startup-folder shortcut on Windows, a LaunchAgent on macOS."""
+    link = startup_link()
+    if MAC:
+        import plistlib
+        link.parent.mkdir(parents=True, exist_ok=True)
+        plist = {"Label": "com.worklog.widget", "RunAtLoad": True, "WorkingDirectory": str(Path(__file__).parent),
+                 "ProgramArguments": [sys.executable, str(Path(__file__).resolve())]}
+        link.write_bytes(plistlib.dumps(plist))
+        print("Installed:", link, "(starts at next login)")
+        return
     exe = Path(sys.executable)
     exe = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
-    link = startup_link()
     script = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:WL_LINK);"
               "$s.TargetPath=$env:WL_EXE;$s.Arguments=$env:WL_ARGS;$s.WorkingDirectory=$env:WL_DIR;$s.Save()")
     env = dict(os.environ, WL_LINK=str(link), WL_EXE=str(exe), WL_DIR=str(Path(__file__).parent),
