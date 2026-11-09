@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **Jira Server/Data Center** (Tempo reads native Jira worklogs). Windows and macOS (macOS has no tray, hotkey, notifications or Outlook import), Python 3 stdlib only (no pip dependencies, keep it that way). User docs are in `README.md`.
+Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **Jira Server/Data Center** (Tempo reads native Jira worklogs). Windows and macOS (macOS has no tray, hotkey or notifications), Python 3 stdlib only (no pip dependencies, keep it that way). User docs are in `README.md`.
 
 ## Layout
 
@@ -9,14 +9,14 @@ Personal worklog tool: a Tkinter widget for logging time, plus an uploader to **
 | `worklog.py` | The widget (`Widget` class), duration/date parsing, `confirm()` dialog, `--install-startup` |
 | `tempo_sync.py` | Upload logic + CLI: `plan_jobs`, `post_jobs`, `call`, `check_login`, `auth_headers`, `normalize_cookie` |
 | `store.py` | `load`/`save`/`mark_synced` for `~/.worklog/entries.json`, guarded by a shared `LOCK`; `load_absences`/`save_absences`; `load_config(path)` for `tasks.json` |
-| `outlook.py` | `read(first, last, holiday_calendars=())` returns raw calendar events via a PowerShell COM script (events from the named sub-calendars carry `holiday: True` and count as absences); `meetings()` and `absences()` classify them (absence = BusyStatus 3 or subject regex; split per day with the overlap in seconds) |
+| `ics.py` | The only calendar source. `read(source, first, last)` returns raw events from an ICS feed (`calendar_ics` in `tasks.json`: URL or path); `meetings()` and `absences()` classify them (absence = busy status 3 or subject regex; split per day with the overlap in seconds). Own RRULE/EXDATE/RECURRENCE-ID expansion and VTIMEZONE offsets (Windows Python has no tz database). No response status in a feed: everything is accepted unless tentative. The URL is a secret: never put it in an error message or print it, and don't grep or print `tasks.json` |
 | `winshell.py` | ctypes: tray icon (`Tray`), global hotkey, balloon `notify`, `style_titlebar`, `single_instance` |
 | `tickets.py` | `fetch(cfg)`: my in-progress tickets from a second, read-only Jira (Bearer PAT, `tickets.token` in `tasks.json`). `Widget.load_tickets`/`pick_ticket`/`ticket_tip` use it. Never writes to that Jira; raises `TicketError` with a short message shown in the list header |
 | `tasks.json` | **Secret** (holds `tickets.token`), git-ignored. Read it only with `store.load_config`, which allows `//` comments; never plain `json.loads`. `example/tasks.json` is the tracked template and documents every key; keep it, the README key table and the code in step when you add a setting |
 | `cookie.txt` | **Secret**, git-ignored. Format example in `example/cookie.txt` |
 
 Data lives outside the repo: `~/.worklog/entries.json`, a list of
-`{"id", "date": "YYYY-MM-DD", "code", "seconds", "desc"}`. Added by import: `"outlook": "<start>|<subject>"` (dedupe key). Added by upload: `"synced": true, "task", "jiraWorklogId"`.
+`{"id", "date": "YYYY-MM-DD", "code", "seconds", "desc"}`. Added by import: `"outlook": "<start>|<subject>"` (dedupe key, name kept for old data). Added by upload: `"synced": true, "task", "jiraWorklogId"`.
 **Synced vs unsynced is just the `synced` flag.** `plan_jobs` uploads every entry without it.
 
 ## Auth model (important)
@@ -31,13 +31,13 @@ Uploads use the native `POST /rest/api/2/issue/<key>/worklog` (not Tempo's own A
 ## Conventions and gotchas
 
 - **Do not call the real Jira (either one) or read the user's calendar/cookies/token unprompted.** Tests must use fakes (see below). `cookie.txt` and `tickets.token` are live credentials: never print them, copy them into other files (including `example/`), or commit them. To check that `tasks.json` parses, print only key names.
-- **Tkinter is single-threaded.** Background work (Outlook read, login check, upload) runs in a thread and writes into a dict; the Tk thread polls it with `root.after(200, ...)`. Never touch widgets from a worker thread. Follow `import_meetings` / `sync` / `check_login` / `load_tickets`.
+- **Tkinter is single-threaded.** Background work (calendar read, login check, upload) runs in a thread and writes into a dict; the Tk thread polls it with `root.after(200, ...)`. Never touch widgets from a worker thread. Follow `import_meetings` / `sync` / `check_login` / `load_tickets`.
 - **Every mutation of entries calls `self.snapshot()` first** (Undo). `undo()` restores the snapshot but re-applies `SYNC_KEYS` from the current file so an undo can never un-sync an entry (that would double-post).
 - Task codes must **not contain hyphens**: the input is split on the first two `-`.
 - A bare number in the time field means **hours**; minutes need a unit. `.5` is half an hour.
 - `check()` enforces `max_entry_hours` on typed entries only (`-1` = no limit, stored as `self.max_s = None`). Imported meetings bypass it on purpose.
-- Outlook switches in `tasks.json` (all default true, `null`/`false` = off): `import_meetings_from_outlook` controls only the Meetings button; `import_absences_from_outlook` and `import_holidays_from_outlook` (needs `holiday_outlook_calendar_names`, sub-calendars of the main Calendar) control what `load_absences_ahead` reads on startup (today + 31 days) and what the Meetings button also merges. `merge_absences` replaces only the enabled kinds. Holiday rows are absences with `"holiday": true`, shown in yellow (`HOLIDAY`).
-- Outlook: **classic Outlook only** (COM). `Items.Restrict` returned nothing on this machine, so `outlook.py` walks the sorted items instead. Don't reintroduce `Restrict`. Only `ResponseStatus` 1 (organised) and 3 (accepted) are imported.
+- Calendar switches in `tasks.json` (names keep the old `_outlook` suffix; default true, `null`/`false` = off): `import_meetings_from_outlook` controls only the Meetings button, which also needs `calendar_ics` (no feed = no button, no absences); `import_absences_from_outlook` controls what `load_absences_ahead` reads on startup (today + 31 days) and what the Meetings button also merges. `merge_absences` replaces all absence rows of the days it read. Old `"holiday": true` rows still render in yellow (`HOLIDAY`), but nothing creates them any more.
+- Calendar: **ICS feed only** (local Outlook COM reading was removed). A feed has no response status, so only tentative is excluded.
 - **Absences are display-only.** They live in `~/.worklog/absences.json` (`store.load_absences/save_absences`), never in `entries.json`, so `plan_jobs` can never upload them. `Widget.day_target(d)` = daily target minus that day's absence seconds (min 0, weekends 0); use it instead of `self.target_s` for any "is this day complete" logic. Absence rows are `("absence", dict)` in `self.rows`. They are not covered by Undo.
 - The tray runs in its own thread with a hidden window. It talks to Tk through `Tray.events` (a queue polled by `Widget.poll`). The tray icon is `worklog.ico` if present.
 - **Ticket line.** Clicking a ticket fills `<code> -  - <title>` and puts the cursor after `<code> - ` (via `root.after`, or the listbox steals the focus back). `[...]` text is stripped from the title. The line must still pass `check()`: the description keeps any further hyphens, so titles with `-` are fine.
@@ -52,7 +52,7 @@ Uploads use the native `POST /rest/api/2/issue/<key>/worklog` (not Tempo's own A
 ```powershell
 python worklog.py                  # widget
 python tempo_sync.py               # dry run
-python -m py_compile worklog.py tempo_sync.py store.py winshell.py outlook.py tickets.py
+python -m py_compile worklog.py tempo_sync.py store.py winshell.py tickets.py ics.py
 ```
 
 There is no test suite. Smoke-test by building a `Widget` against a temp file and faking the network:

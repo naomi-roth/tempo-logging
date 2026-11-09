@@ -27,22 +27,22 @@
   // Weekday time (HH:MM) for the tray nudge when you are under target. "" turns it off. Default: "15:00"
   // "reminder_time": "15:00",
 
-  // Whether to show the Meetings button (imports accepted meetings from classic Outlook). Default: true
+  // Calendar feed: an ICS link or a file path. Needed for the Meetings button and for absences.
+  // Outlook on the web > Settings > Calendar > Shared calendars > Publish a calendar > ICS link.
+  // SECRET: anyone with the link can read your calendar. Keep it only in this git-ignored file.
+  "calendar_ics": "https://<PUBLISHED_CALENDAR_LINK>.ics",
+
+  // Whether to show the Meetings button (imports accepted meetings from the feed, past or upcoming). Default: true
   // "import_meetings_from_outlook": true,
 
-  // Task code used for meetings imported from classic Outlook. Must be one of the codes above. Default: "MTG"
+  // Task code used for imported meetings. Must be one of the codes above. Default: "MTG"
   // "meeting_code": "MTG",
 
-  // Regex (case-insensitive) on an Outlook event subject that marks it as an absence, not a meeting.
-  // Events Outlook shows as "Out of office" always count. Default:
+  // Regex (case-insensitive) on an event subject that marks it as an absence, not a meeting.
+  // Events with the busy status "Out of office" always count. Default:
   // "absence_match": "absence|out of office|\\booo\\b|vacation|holiday|sick",
 
-  // Public holidays from Outlook sub-calendars (under your main Calendar), listed by name below. They show
-  // in yellow and lower that day's target to 0. Needs at least one name. Default: true, no names
-  // "import_holidays_from_outlook": true,
-  // "holiday_outlook_calendar_names": ["Czechia holidays"],
-
-  // Whether to read absences (out of office) from your main calendar. They show greyed out and lower
+  // Whether to read absences (out of office, and holidays matching absence_match) from the feed. They show greyed out and lower
   // that day's target. Read on startup for the next month, and by the Meetings button. Default: true
   // "import_absences_from_outlook": true,
 

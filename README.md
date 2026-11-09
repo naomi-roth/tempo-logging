@@ -10,20 +10,20 @@ CODE-time-description      BE-2h-fixed a bug
 
 | File | Purpose |
 |---|---|
-| `worklog.py` | The widget: week view, tray icon, hotkey, Outlook import, ticket list, sync button |
+| `worklog.py` | The widget: week view, tray icon, hotkey, calendar import, ticket list, sync button |
 | `tempo_sync.py` | Uploads entries to Jira. Used by the widget and runnable as a CLI |
 | `tickets.py` | Reads your in-progress tickets from a second, read-only Jira |
+| `ics.py` | Reads meetings and absences from an `.ics` calendar feed |
 | `store.py` | Reads and writes `~/.worklog/entries.json` (shared, thread-safe) |
-| `outlook.py` | Reads meetings, absences and public holidays from **classic** Outlook via COM |
 | `winshell.py` | Tray icon, global hotkey, notifications, dark title bar (ctypes) |
 | `tasks.json` | Jira URLs, task codes, the read token and settings. **Contains a secret, git-ignored.** See `example/tasks.json` |
 | `cookie.txt` | Your session cookie for the upload Jira. **Secret, git-ignored.** See `example/cookie.txt` |
 | `~/.worklog/entries.json` | Your entries (created automatically) |
-| `~/.worklog/absences.json` | Absences and public holidays imported from Outlook (display only, created automatically) |
+| `~/.worklog/absences.json` | Absences imported from the calendar feed (display only, created automatically) |
 
 ## Setup
 
-1. **Windows** or **macOS** with **Python 3.8+** (`tkinter` is bundled, nothing to `pip install`). Meetings import also needs **classic Outlook** (see [Meetings](#the-widget)).
+1. **Windows** or **macOS** with **Python 3.8+** (`tkinter` is bundled, nothing to `pip install`). Meetings and absences need a calendar feed link (see [Meetings](#the-widget)).
 2. **Copy `example/tasks.json` to `tasks.json`** and edit it. The example explains every setting in `//` comments and has the optional ones commented out. `tasks.json` accepts `//` comments. Details: [`tasks.json`](#tasksjson).
 3. **Get your credentials** (next section). There are two, for two different Jira servers.
 4. Run `python worklog.py` (macOS: `python3 worklog.py`), then type `BE-2h-something` and press Enter. Nothing is uploaded until you click **Sync to Jira**.
@@ -91,13 +91,12 @@ The token is sent as `Authorization: Bearer ...`, which is how Jira Server/Data 
 | `hotkey` | `win+shift+w` | Global show/hide key. Modifiers (`ctrl`, `alt`, `shift`, `win`) plus a letter, digit or `F1`–`F12` |
 | `target_hours` | `8` | Daily target per weekday |
 | `max_entry_hours` | `4` | Longest entry you can type (imported meetings are exempt). `-1` means no limit |
+| `calendar_ics` | none | URL (`https://` or `webcal://`) or file path of an `.ics` calendar feed. The only calendar source: without it there is no **Meetings** button and no absences. Works on Windows and macOS. **Secret** if it is a published link |
 | `import_meetings_from_outlook` | `true` | `null` (or `false`) hides the **Meetings** button. Use it if you don't want meetings imported |
-| `import_absences_from_outlook` | `true` | `null` (or `false`) stops reading absences (out of office) from your main calendar, on startup (next month) and with **Meetings** |
-| `import_holidays_from_outlook` | `true` | `null` (or `false`) stops reading public holidays. Does nothing without `holiday_outlook_calendar_names` |
-| `meeting_code` | `MTG` | Code used for imported Outlook meetings |
+| `import_absences_from_outlook` | `true` | `null` (or `false`) stops reading absences (out of office) from your calendar, on startup (next month) and with **Meetings** |
+| `meeting_code` | `MTG` | Code used for imported meetings |
 | `reminder_time` | `15:00` | Weekday nudge if you're under target. `""` turns it off |
-| `holiday_outlook_calendar_names` | none | Names of Outlook sub-calendars holding public holidays, e.g. `["Czechia holidays"]`. Their events show in yellow, lower that day's target to 0 and are never uploaded |
-| `absence_match` | `absence\|out of office\|\booo\b\|vacation\|holiday\|sick` | Regex (case-insensitive) on the event subject that marks an absence. Events Outlook shows as "Out of office" always count |
+| `absence_match` | `absence\|out of office\|\booo\b\|vacation\|holiday\|sick` | Regex (case-insensitive) on the event subject that marks an absence. Events whose busy status is "Out of office" always count |
 | `workers` | `4` | Parallel uploads |
 
 ### `cookie.txt` format
@@ -143,11 +142,12 @@ python worklog.py
 
 A ✓ marks entries already uploaded. Those can't be edited. Deleting an entry only removes it locally, never from Jira.
 
-**Meetings.** Select days and click **Meetings** to add meetings from Outlook that have **already ended** and that you **accepted or organised**. All-day, tentative, unanswered, declined and cancelled ones are skipped. Importing twice doesn't duplicate. **This works only with classic ("old") Outlook.** The calendar is read through Outlook's local COM interface, which classic desktop Outlook provides. New Outlook (the one with the "New Outlook" toggle on) and Outlook on the web have no local calendar API, so **Meetings** finds nothing. Switch the toggle off and keep classic Outlook installed, and ideally running, when you import. Absences use the same route. If you don't use classic Outlook, set `import_meetings_from_outlook` to `null` in `tasks.json` to hide the button.
+**Meetings.** Select days and click **Meetings** to add the meetings on those days that you **accepted or organised**, whether they are over or still to come. All-day, tentative, declined and cancelled ones are skipped. Importing twice doesn't duplicate. Meetings are read from an `.ics` calendar feed: set `calendar_ics` in `tasks.json` to a published calendar link (Outlook on the web: Settings > Calendar > Shared calendars > Publish a calendar > ICS link, if your IT allows it), or to the path of an exported `.ics` file. Without it the button is hidden. Limits: the feed has no response status, so everything counts as accepted unless it is tentative (remove declined meetings from your calendar first), and Outlook may take a while to refresh a published feed. **The link is a secret** (anyone holding it can read your calendar): keep it only in the git-ignored `tasks.json`. The `*_outlook` setting names are kept so existing `tasks.json` files still work.
 
-**Absences.** On startup the widget reads the next month (today + 31 days) in the background, and the **Meetings** click refreshes the selected days. It reads your absence events (Outlook "out of office" events, or a subject matching `absence`, `out of office`, `ooo`, `vacation`, `holiday` or `sick`; change it with `absence_match` in `tasks.json`). They appear under the day as `⊘ Absence all day (not uploaded)` and lower that day's target: a 4h absence makes the target 4h, an all-day absence makes it 0 (the day turns green), and the 15:00 nudge follows the lowered target. Multi-day absences, such as 8–9 October, are split per day. Future absences are imported too. Absences are stored separately in `~/.worklog/absences.json` and are **never uploaded**. Re-reading replaces the absences of those days. Select an absence row and press `Delete` to remove it. Switch this off with `import_absences_from_outlook`.
 
-**Public holidays.** Set `holiday_outlook_calendar_names` to the Outlook sub-calendars that hold them (for example `["Czechia holidays"]`, found under your main Calendar). They are read together with the absences, show as `⊘ Public holiday` in yellow, set that day's target to 0 and are never uploaded. Switch this off with `import_holidays_from_outlook`.
+**Absences.** On startup the widget reads the next month (today + 31 days) in the background, and the **Meetings** click refreshes the selected days. It reads your absence events (events with the busy status "Out of office", or a subject matching `absence`, `out of office`, `ooo`, `vacation`, `holiday` or `sick`; change it with `absence_match` in `tasks.json`). They appear under the day as `⊘ Absence all day (not uploaded)` and lower that day's target: a 4h absence makes the target 4h, an all-day absence makes it 0 (the day turns green), and the 15:00 nudge follows the lowered target. Multi-day absences, such as 8–9 October, are split per day. Future absences are imported too. Absences are stored separately in `~/.worklog/absences.json` and are **never uploaded**. Re-reading replaces the absences of those days. Select an absence row and press `Delete` to remove it. Switch this off with `import_absences_from_outlook`.
+
+**Public holidays.** They are no longer read from Outlook sub-calendars. A holiday in the feed counts as an absence when its subject matches `absence_match` (for example it contains `holiday`).
 
 **Sync to Jira.** Click **Sync to Jira**, check the summary, confirm. The `● Jira` badge shows whether your cookie works (click to recheck).
 
@@ -159,7 +159,7 @@ A ✓ marks entries already uploaded. Those can't be edited. Deleting an entry o
 4. Clicking a red `● Jira` badge opens `cookie.txt` in your default text editor (`open -t`).
 5. `python3 worklog.py --install-startup` writes a LaunchAgent (`~/Library/LaunchAgents/com.worklog.widget.plist`) that starts the widget at next login. `--uninstall-startup` removes it.
 
-Not available on macOS (they use Windows APIs): tray icon, global hotkey, end-of-day notification, and the **Meetings** button, absences and holidays (classic Outlook COM). The X closes the widget, and the Outlook settings in `tasks.json` are ignored.
+Not available on macOS (they use Windows APIs): tray icon, global hotkey and end-of-day notification. The X closes the widget. **Meetings** and absences work the same, through `calendar_ics`.
 
 **Tray and hotkey (Windows).** The X and `Esc` hide the widget to the tray. The hotkey toggles it. Right-click the tray icon to quit.
 
@@ -195,7 +195,7 @@ python tempo_sync.py --from 2026-10-01 --to 2026-10-05 --apply
 | `● Tickets: no token` | `tickets.token` is empty or still the `<READ_TOKEN>` placeholder |
 | `● Tickets: token rejected` | The PAT is wrong, expired or revoked. Create a new one |
 | `● Tickets: unreachable` | The tickets Jira needs the VPN or company network, or `tickets.url` is wrong (keep the `/jira` path) |
-| **Meetings** adds nothing | You use new Outlook. Switch to classic Outlook (see above) |
+| **Meetings** adds nothing or is missing | `calendar_ics` isn't set (no button), the link expired (the status line says so), or there are no accepted meetings on the selected days |
 | Widget closes at start with a `JSONDecodeError` | `tasks.json` is invalid JSON, for example a missing comma or a stray trailing comma. `//` comments are fine |
 | Hotkey does nothing | Another program uses it. Change `hotkey` in `tasks.json` |
 
@@ -203,13 +203,13 @@ python tempo_sync.py --from 2026-10-01 --to 2026-10-05 --apply
 
 - Worklog entries: `~/.worklog/entries.json` on your machine. They are sent to the upload Jira only when you click **Sync to Jira** or run `tempo_sync.py --apply`.
 - The cookie in `cookie.txt` is sent only to `jira_url`. The token in `tasks.json` is sent only to `tickets.url`.
-- Meetings are read from your local Outlook and are never sent anywhere except as the descriptions of entries you sync.
+- Meetings are read from your calendar feed and are never sent anywhere except as the descriptions of entries you sync.
 
 ## Notes and limitations
 
 - Worklogs go to `/rest/api/2/issue/<key>/worklog`, with the header `X-Atlassian-Token: no-check`.
 - The tools never edit or delete existing Jira worklogs. Fix a wrong synced entry in Jira/Tempo.
-- Outlook doesn't record attendance, so "accepted" stands in for "attended".
+- A calendar feed doesn't record attendance or responses, so "in your calendar and not tentative" stands in for "attended".
 - Don't run a CLI sync and a widget edit at the exact same moment. Both write `entries.json` (writes are locked, but use **Reload** afterwards).
 - `cookie.txt` and the token in `tasks.json` are live credentials. Keep them out of git and chat.
 - The tickets Jira is only ever read (`GET /rest/api/2/search`). Nothing is written to it.

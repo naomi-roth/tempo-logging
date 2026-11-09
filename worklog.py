@@ -267,9 +267,9 @@ class Widget:
         button(bottom, "Delete", self.delete, tip="Delete the selected entries (Del). Undo brings them back").pack(side="left", padx=6)
         button(bottom, "Undo", self.undo, tip=f"Undo the last change ({MOD_NAME}+Z). Never un-syncs an entry").pack(side="left")
         button(bottom, "Mon–Fri", self.select_weekdays, tip="Select all weekdays, so one line is added to each").pack(side="left", padx=6)
-        if sys.platform == "win32" and self.outlook_flag("import_meetings_from_outlook"):  # needs Outlook COM; null or false hides it
+        if self.calendar_available() and self.outlook_flag("import_meetings_from_outlook"):  # null or false hides it
             button(bottom, "Meetings", self.import_meetings,
-                   tip="Import accepted meetings from Outlook for the selected days").pack(side="left")
+                   tip="Import your meetings (accepted, past or upcoming) for the selected days").pack(side="left")
         button(bottom, "Sync to Jira", self.sync, tip="Upload all unsynced entries to Jira (asks to confirm first)").pack(side="right")
         self.status = tk.Label(root, anchor="w", bg=BG, fg=MUTED, font=font(9))
         self.status.pack(fill="x", padx=14, pady=(0, 10))
@@ -278,7 +278,7 @@ class Widget:
         self.check_login()
         if cfg.get("tickets"):
             self.load_tickets()
-        if sys.platform == "win32" and (self.outlook_flag("import_absences_from_outlook") or self.holiday_names()):
+        if self.calendar_available() and self.outlook_flag("import_absences_from_outlook"):
             self.load_absences_ahead()
         if self.reminder_at:
             root.after(5000, self.reminder_tick)
@@ -829,21 +829,20 @@ class Widget:
         self.say(f"Pasted {len(self.clip)} into {len(days)} day{'s' if len(days) > 1 else ''}", "ok")
 
     def import_meetings(self):
-        """Add meetings that have already ended, from Outlook, to every selected day."""
+        """Add your meetings, past or upcoming, from the calendar to every selected day."""
         if self.importing:
             return
         if not self.meeting_code:
             self.say("Set 'meeting_code' in tasks.json to a code from your task list", "err")
             return
-        import outlook
         days = self.target_days()
         self.importing = True
-        self.say("Reading Outlook calendar...")
+        self.say("Reading calendar...")
         result = {}
 
         def work():
             try:
-                result["events"] = outlook.read(min(days), max(days), holiday_calendars=self.holiday_names())
+                result["events"] = self.read_calendar(min(days), max(days))
             except Exception as e:
                 result["error"] = str(e)
 
@@ -854,41 +853,37 @@ class Widget:
         """Outlook import switches default to on; null or false turns one off."""
         return bool(self.cfg.get(key, True))
 
-    def holiday_names(self):
-        """Sub-calendars to read public holidays from; empty when holidays are switched off."""
-        if not self.outlook_flag("import_holidays_from_outlook"):
-            return []
-        return list(self.cfg.get("holiday_outlook_calendar_names") or [])
+    def calendar_available(self):
+        """The calendar feed (`calendar_ics` in tasks.json) is the only source."""
+        return bool(self.cfg.get("calendar_ics"))
+
+    def read_calendar(self, first, last):
+        """Raw events for first..last from the calendar feed."""
+        import ics
+        return ics.read(self.cfg["calendar_ics"], first, last)
 
     def merge_absences(self, events, day_keys):
-        """Absences and holidays are display-only (they lower that day's target). Re-reading replaces
-        the enabled kinds for `day_keys`, so one removed from Outlook disappears here too, while a kind
-        that is switched off is left as it was. Returns the fresh ones."""
-        import outlook
-        pattern = self.cfg.get("absence_match", outlook.ABSENCE_PATTERN)
-        kinds = set()  # is_holiday values we may replace
-        if self.outlook_flag("import_absences_from_outlook"):
-            kinds.add(False)
-        if self.holiday_names():
-            kinds.add(True)
-        fresh = [a for a in outlook.absences(events, pattern)
-                 if a["date"] in day_keys and bool(a.get("holiday")) in kinds]
-        keep = [a for a in store.load_absences()
-                if a["date"] not in day_keys or bool(a.get("holiday")) not in kinds]
-        store.save_absences(keep + fresh)
+        """Absences are display-only (they lower that day's target). Re-reading replaces every absence
+        row of `day_keys`, so one removed from the calendar disappears here too (this includes older
+        holiday rows). With the switch off, nothing is touched. Returns the fresh ones."""
+        if not self.outlook_flag("import_absences_from_outlook"):
+            return []
+        import ics
+        pattern = self.cfg.get("absence_match", ics.ABSENCE_PATTERN)
+        fresh = [a for a in ics.absences(events, pattern) if a["date"] in day_keys]
+        store.save_absences([a for a in store.load_absences() if a["date"] not in day_keys] + fresh)
         return fresh
 
     def load_absences_ahead(self):
         """On startup: absences and public holidays for the next month, read in the background.
         Meetings are not touched. Same polling pattern as import_meetings."""
-        import outlook
         first = date.today()
         days = {(first + timedelta(days=i)).isoformat() for i in range(32)}
         result = {}
 
         def work():
             try:
-                result["events"] = outlook.read(first, first + timedelta(days=31), holiday_calendars=self.holiday_names())
+                result["events"] = self.read_calendar(first, first + timedelta(days=31))
             except Exception as e:
                 result["error"] = str(e)
 
@@ -913,19 +908,16 @@ class Widget:
         if "error" in result:
             self.say(result["error"], "err")
             return
-        import outlook
-        pattern = self.cfg.get("absence_match", outlook.ABSENCE_PATTERN)
+        import ics
+        pattern = self.cfg.get("absence_match", ics.ABSENCE_PATTERN)
         fresh = self.merge_absences(result["events"], {d.isoformat() for d in days})
 
         self.snapshot()
-        now, entries = datetime.now(), load()
+        entries = load()
         have = {e.get("outlook") for e in entries if e.get("outlook")}
-        added = dupes = upcoming = 0
-        for m in outlook.meetings(result["events"], pattern):
+        added = dupes = 0
+        for m in ics.meetings(result["events"], pattern):
             if m["start"].date() not in days:
-                continue
-            if m["end"] > now:
-                upcoming += 1
                 continue
             seconds = round((m["end"] - m["start"]).total_seconds() / 60) * 60
             key = f"{m['start']:%Y-%m-%dT%H:%M}|{m['subject']}"
@@ -943,7 +935,7 @@ class Widget:
         if len(days) > 1:
             self.select_days(set(days))
         absent_days = len({a["date"] for a in fresh})
-        extra = "".join([f", {dupes} already added" if dupes else "", f", {upcoming} not finished yet" if upcoming else "",
+        extra = "".join([f", {dupes} already added" if dupes else "",
                          f", {absent_days} absence day{'s' if absent_days != 1 else ''}" if absent_days else ""])
         self.say(f"Added {added} meeting{'s' if added != 1 else ''}{extra}", "ok")
 
